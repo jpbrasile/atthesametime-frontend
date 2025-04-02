@@ -119,15 +119,25 @@
         </div>
     </div>
 
+
+
+
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
     <script>
         // Configuration
         const SUPABASE_URL = 'https://supabase.atthesametime.eu';
         const SUPABASE_ANON_KEY = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJzdXBhYmFzZSIsImlhdCI6MTc0MzQ0MTEyMCwiZXhwIjo0ODk5MTE0NzIwLCJyb2xlIjoiYW5vbiJ9.tDUWbpLozT-ABGlKDzA7fkQVSNFlLMNgFOxzwU8mzU0';
-        
+
         // Initialize Supabase client
-        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-        
+        // ** FIX STARTS HERE **
+        // Get the createClient function from the global supabase object provided by the script tag
+        const { createClient } = supabase;
+
+        // Now call the function and assign the result to your local supabase variable
+        // This variable will now hold your specific Supabase client instance.
+        const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        // ** FIX ENDS HERE **
+
         // DOM elements
         const statusDiv = document.getElementById('status');
         const errorBox = document.getElementById('error-box');
