@@ -128,20 +128,17 @@
         const SUPABASE_URL = 'https://supabase.atthesametime.eu';
         const SUPABASE_ANON_KEY = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJzdXBhYmFzZSIsImlhdCI6MTc0MzQ0MTEyMCwiZXhwIjo0ODk5MTE0NzIwLCJyb2xlIjoiYW5vbiJ9.tDUWbpLozT-ABGlKDzA7fkQVSNFlLMNgFOxzwU8mzU0';
 
-
-// Initialize Supabase client
-    // Get the createClient function from the global supabase object provided by the script tag
-    // You can keep or remove this console.log for debugging:
-    // console.log('Checking global supabase before destructuring:', window.supabase);
-    const { createClient } = supabase;
+    // --- MODIFICATION START ---
+    // Explicitly access the GLOBAL supabase object via window
+    console.log('Checking window.supabase before getting createClient:', window.supabase);
+    const { createClient } = window.supabase;
+    console.log('Got createClient function:', createClient);
 
     // Now call the function and assign the result to your *local* supabase variable
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    // You can add a log here to confirm:
-    // console.log('Supabase client initialized:', supabase);
+    console.log('Initialized local supabase client:', supabase);
+    // --- MODIFICATION END ---
 
-        // Initialize Supabase client
-  
 
    
 
