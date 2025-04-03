@@ -154,6 +154,8 @@
                 <button id="signout" style="display: none;">Sign Out</button> <!-- Hidden initially -->
                  <!-- Add password recovery request button if desired -->
                  <!-- <button id="forgot-password">Forgot Password?</button> -->
+                 <!-- Note: Password recovery is typically initiated via a separate link/page, -->
+                 <!-- but this page handles the *completion* when the user clicks the recovery email link -->
             </div>
         </div>
 
@@ -186,20 +188,35 @@
     <script>
         // --- Configuration ---
         const SUPABASE_URL = 'https://supabase.atthesametime.eu';
-        // IMPORTANT: Replace with your ACTUAL Supabase Anonymous Key
-        // This key is safe to expose in browser code. DO NOT expose your Service Role Key here.
+        // ================= IMPORTANT ==================
+        // REPLACE THE PLACEHOLDER BELOW WITH YOUR *ACTUAL* SUPABASE ANONYMOUS KEY.
+        // Find this in your Supabase project dashboard: Project Settings > API > Project API keys > anon (public)
+        // DO NOT expose your Service Role Key here.
         const SUPABASE_ANON_KEY = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJzdXBhYmFzZSIsImlhdCI6MTc0MzU5NzAwMCwiZXhwIjo0ODk5MjcwNjAwLCJyb2xlIjoiYW5vbiJ9.wgkj49OLaZ8lacLdpQqbs1lWYSKx2LnIeJ2YgZ3fbgs';
 
 
 
+        // ==============================================
+
         // --- Initialize Supabase Client ---
         // The Supabase library attaches `createClient` to the global `supabase` object.
-        if (!supabase || !supabase.createClient) {
-             console.error('Supabase client library not loaded correctly.');
-             alert('Error: Supabase library failed to load. Check the console.');
+        let supabaseClient;
+        try {
+            if (!supabase || !supabase.createClient) {
+                throw new Error('Supabase client library not loaded correctly.');
+            }
+            if (SUPABASE_ANON_KEY === 'YOUR_SUPABASE_ANON_KEY_HERE') {
+                 throw new Error('Supabase Anonymous Key not set. Please replace the placeholder in the script.');
+            }
+            supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            console.log('Supabase client initialized');
+        } catch (error) {
+             console.error('Supabase initialization failed:', error.message);
+             alert('Error: Supabase client failed to initialize. Check the console and make sure you have replaced the placeholder ANON key.');
+             // Optionally disable the UI or show a persistent error message
+             document.getElementById('status').innerHTML = `<span style="color: red; font-weight: bold;">Initialization Error: ${error.message}</span>`;
         }
-        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-        console.log('Supabase client initialized');
+
 
         // --- DOM Elements ---
         const statusDiv = document.getElementById('status');
@@ -222,15 +239,22 @@
 
         // --- Utility Functions ---
         function log(message, type = 'info') {
-            console[type === 'error' ? 'error' : 'log'](message); // Use console.error for errors
-            const logEntry = document.createElement('div');
-            const timestamp = new Date().toLocaleTimeString();
-            logEntry.innerHTML = `<code>[${timestamp}] ${type.toUpperCase()}: ${message.replace('<','<').replace('>','>')}</code>`; // Basic escaping
-            logEntry.style.color = type === 'error' ? '#721c24' : type === 'warn' ? '#856404' : '#333';
-            logEntry.style.borderBottom = '1px solid #eee';
-            logEntry.style.padding = '2px 0';
-            logContainer.appendChild(logEntry);
-            logContainer.scrollTop = logContainer.scrollHeight; // Auto-scroll
+            // Only log if initialization was successful
+            if (supabaseClient) {
+                console[type === 'error' ? 'error' : 'log'](message); // Use console.error for errors
+                const logEntry = document.createElement('div');
+                const timestamp = new Date().toLocaleTimeString();
+                // Basic escaping to prevent HTML injection via log messages
+                const escapedMessage = message.toString().replace(/</g, "<").replace(/>/g, ">");
+                logEntry.innerHTML = `<code>[${timestamp}] ${type.toUpperCase()}: ${escapedMessage}</code>`;
+                logEntry.style.color = type === 'error' ? '#721c24' : type === 'warn' ? '#856404' : '#333';
+                logEntry.style.borderBottom = '1px solid #eee';
+                logEntry.style.padding = '2px 0';
+                logContainer.appendChild(logEntry);
+                logContainer.scrollTop = logContainer.scrollHeight; // Auto-scroll
+            } else {
+                 console.warn("Logging skipped: Supabase client not initialized.");
+            }
         }
 
         function showError(message) {
@@ -245,6 +269,9 @@
         }
 
         function updateUI(state, session = null) {
+            // Don't update UI if client isn't ready
+            if (!supabaseClient) return;
+
             clearError();
             log(`Updating UI for state: ${state}`);
 
@@ -287,7 +314,8 @@
                     break;
 
                 case 'AWAITING_CONFIRMATION':
-                    statusDiv.innerHTML = `<span class="success">Check your email (${emailInput.value}) for the confirmation or magic link!</span>`;
+                    const userEmail = emailInput.value.trim() || 'your email';
+                    statusDiv.innerHTML = `<span class="success">Check ${userEmail} for the confirmation or magic link!</span>`;
                      authFormDiv.style.display = 'block'; // Keep auth form visible but maybe disabled
                      signInButton.disabled = true;
                      signUpButton.disabled = true;
@@ -302,34 +330,44 @@
 
 
         // --- Supabase Auth Event Listener ---
-        supabaseClient.auth.onAuthStateChange((event, session) => {
-            log(`Auth Event: ${event}`);
-            if (session) {
-                log(`Session User: ${session.user.email}, ID: ${session.user.id}`);
-            } else {
-                 log('No active session.');
-            }
+        // Add listener only if client initialized successfully
+        if (supabaseClient) {
+            supabaseClient.auth.onAuthStateChange((event, session) => {
+                log(`Auth Event: ${event}`);
+                if (session) {
+                    log(`Session User: ${session.user.email}, ID: ${session.user.id}`);
+                } else {
+                    log('No active session.');
+                }
 
-            // Handle the special case where the user lands here from a recovery link
-            if (event === 'PASSWORD_RECOVERY') {
-                updateUI('PASSWORD_RECOVERY');
-            } else if (session) {
-                // User is signed in (could be from initial load, sign in, sign up confirmation, magic link)
-                updateUI('SIGNED_IN', session);
-            } else {
-                // User is signed out (could be from initial load, sign out)
-                 updateUI('SIGNED_OUT');
-                 // If the event was USER_UPDATED but there's no session (e.g., after password update),
-                 // ensure UI is in signed-out state. This might need adjustment based on desired flow.
-                 if(event === 'USER_UPDATED') {
-                     log('User updated (likely password reset), ensuring signed out state for UI.');
-                     statusDiv.innerHTML = '<span class="success">Password updated successfully! Please sign in.</span>';
-                 }
-            }
-        });
+                // Handle the special case where the user lands here from a recovery link
+                if (event === 'PASSWORD_RECOVERY') {
+                    updateUI('PASSWORD_RECOVERY');
+                } else if (session) {
+                    // User is signed in (could be from initial load, sign in, sign up confirmation, magic link)
+                    updateUI('SIGNED_IN', session);
+                } else {
+                    // User is signed out (could be from initial load, sign out)
+                    updateUI('SIGNED_OUT');
+                    // If the event was USER_UPDATED but there's no session (e.g., after password update),
+                    // ensure UI is in signed-out state. This might need adjustment based on desired flow.
+                    if(event === 'USER_UPDATED') {
+                        log('User updated (likely password reset), ensuring signed out state for UI.');
+                        // Provide specific feedback after password update success
+                        // The handleUpdatePassword function provides more immediate feedback,
+                        // this ensures the state is correct if the page reloads or listener fires later.
+                        statusDiv.innerHTML = '<span class="success">Password updated successfully! Please sign in.</span>';
+                    }
+                }
+            });
+        } else {
+             log("Auth state listener not attached: Supabase client not initialized.", "warn");
+        }
+
 
         // --- Auth Functions ---
         async function handleSignUp() {
+            if (!supabaseClient) { showError('Supabase client not initialized.'); return; }
             const email = emailInput.value.trim();
             const password = passwordInput.value; // Don't trim password
 
@@ -337,6 +375,7 @@
                 showError('Please enter both email and password.');
                 return;
             }
+             // Ensure password meets Supabase's minimum length (default is 6)
             if (password.length < 6) {
                  showError('Password must be at least 6 characters long.');
                  return;
@@ -357,16 +396,19 @@
                          // You can add emailRedirectTo here if you want the confirmation
                          // link to go somewhere specific AFTER verification, but the
                          // initial verification happens via the link Supabase sends.
-                         // emailRedirectTo: window.location.origin // Example: Redirect back here
+                         // Make sure this URL is allowed in your Supabase project settings (Authentication > URL Configuration)
+                         // emailRedirectTo: window.location.origin // Example: Redirect back to this page's origin
                     }
                 });
 
                 if (error) throw error;
 
-                log('Sign up request successful.');
-                if (data.user && data.user.identities && data.user.identities.length === 0) {
-                     // This often indicates email confirmation is required
-                     log('Sign up successful! Check your email for the confirmation link.');
+                log('Sign up request processing...');
+                // Check if user object exists and has identities. If identities array is empty, email confirmation is likely needed.
+                // data.user will exist even if confirmation is required. data.session will only exist if confirmation is off or already done.
+                if (data.user && (!data.session || (data.user.identities && data.user.identities.length === 0))) {
+                     // This indicates email confirmation is required OR user already exists but unconfirmed
+                     log('Sign up successful (or user exists)! Check your email for the confirmation link.');
                      updateUI('AWAITING_CONFIRMATION');
                 } else if (data.session) {
                      // Email confirmation might be disabled, user is logged in
@@ -374,8 +416,8 @@
                      // onAuthStateChange will handle the UI update to SIGNED_IN
                 } else {
                     // Unexpected state, maybe user exists but confirmation needed?
-                    log('Sign up request sent. Please check your email if confirmation is required.');
-                    updateUI('AWAITING_CONFIRMATION');
+                     log('Sign up request sent. Please check your email if confirmation is required.');
+                     updateUI('AWAITING_CONFIRMATION');
                 }
 
             } catch (error) {
@@ -385,6 +427,7 @@
         }
 
         async function handleSignIn() {
+             if (!supabaseClient) { showError('Supabase client not initialized.'); return; }
             const email = emailInput.value.trim();
             const password = passwordInput.value;
 
@@ -422,6 +465,7 @@
         }
 
         async function handleSignOut() {
+             if (!supabaseClient) { showError('Supabase client not initialized.'); return; }
             clearError();
             log('Attempting sign out...');
             statusDiv.textContent = 'Signing out...';
@@ -432,7 +476,7 @@
 
                 log('Sign out successful.');
                 // onAuthStateChange will handle the UI update
-                emailInput.value = ''; // Clear email on sign out
+                // Keep email, clear password for potential re-login
                 passwordInput.value = ''; // Clear password
 
             } catch (error) {
@@ -442,6 +486,7 @@
         }
 
         async function handleSendMagicLink() {
+             if (!supabaseClient) { showError('Supabase client not initialized.'); return; }
             const email = emailInput.value.trim();
 
             if (!email) {
@@ -458,7 +503,7 @@
                     email,
                     options: {
                         // Redirect URL *after* the user clicks the link in the email
-                        // Make sure this matches your site's URL allowed in Supabase Auth settings
+                        // Make sure this matches one of your site's URLs allowed in Supabase Auth settings (Authentication > URL Configuration)
                         emailRedirectTo: window.location.href, // Redirect back to this page
                     },
                 });
@@ -476,6 +521,7 @@
         }
 
         async function handleUpdatePassword() {
+             if (!supabaseClient) { showError('Supabase client not initialized.'); return; }
             const newPassword = newPasswordInput.value;
             const confirmPassword = confirmPasswordInput.value;
 
@@ -497,8 +543,8 @@
             statusDiv.textContent = 'Updating password...';
 
             try {
-                // The necessary authentication context is automatically handled by
-                // supabase-js when it detects the PASSWORD_RECOVERY event state.
+                // The necessary authentication context (access token from the recovery link)
+                // is automatically handled by supabase-js when it detects the PASSWORD_RECOVERY event state.
                 const { data, error } = await supabaseClient.auth.updateUser({
                     password: newPassword
                 });
@@ -506,19 +552,19 @@
                 if (error) throw error;
 
                 log('Password updated successfully!');
+                // Provide immediate feedback. onAuthStateChange might fire slightly later.
                 statusDiv.innerHTML = `<span class="success">Password updated successfully! You can now sign in.</span>`;
 
-                // Clear recovery form and potentially force sign out / show login form
+                // Clear recovery form
                 newPasswordInput.value = '';
                 confirmPasswordInput.value = '';
-                // UI state should be updated by onAuthStateChange detecting USER_UPDATED
-                // and transitioning to SIGNED_OUT state (as the recovery session is invalidated)
-                // Force a check if needed, or rely on onAuthStateChange:
-                // updateUI('SIGNED_OUT'); // Manually put UI in sign out state
 
-                 // You might want to explicitly sign the user out if the updateUser
-                 // call doesn't automatically invalidate the recovery session token
-                 // await supabaseClient.auth.signOut();
+                // The PASSWORD_RECOVERY state is temporary. After updating the password,
+                // the user is effectively signed out (the recovery token is invalidated).
+                // onAuthStateChange should detect this (via USER_UPDATED event leading to no session)
+                // and transition the UI to the SIGNED_OUT state automatically.
+                // If needed, you could force a sign out, but it's usually handled:
+                // await supabaseClient.auth.signOut();
 
 
             } catch (error) {
@@ -527,399 +573,26 @@
             }
         }
 
-        // --- Add Event Listeners ---
-        signUpButton.addEventListener('click', handleSignUp);
-        signInButton.addEventListener('click', handleSignIn);
-        signOutButton.addEventListener('click', handleSignOut);
-        magicLinkButton.addEventListener('click', handleSendMagicLink);
-        updatePasswordButton.addEventListener('click', handleUpdatePassword);
+        // --- Add Event Listeners (Only if client initialized) ---
+        if (supabaseClient) {
+            signUpButton.addEventListener('click', handleSignUp);
+            signInButton.addEventListener('click', handleSignIn);
+            signOutButton.addEventListener('click', handleSignOut);
+            magicLinkButton.addEventListener('click', handleSendMagicLink);
+            updatePasswordButton.addEventListener('click', handleUpdatePassword);
 
-        // --- Initial Log ---
-        log('Page loaded. Initializing authentication check...');
-        // Note: onAuthStateChange handles the initial state check automatically upon client initialization.
-
-    </script>
-</body>
-</html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Supabase Auth Test</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            line-height: 1.6;
-            padding: 20px;
-            background-color: #f4f4f4;
-            color: #333;
+            // --- Initial Log ---
+            log('Page loaded. Initializing authentication check...');
+            // Note: onAuthStateChange handles the initial state check automatically upon client initialization.
+        } else {
+            // Disable all buttons if initialization failed
+            const buttons = document.querySelectorAll('button');
+            buttons.forEach(button => button.disabled = true);
+            const inputs = document.querySelectorAll('input');
+            inputs.forEach(input => input.disabled = true);
+            log("UI interactions disabled: Supabase client not initialized.", "warn");
         }
-        .container {
-            max-width: 600px;
-            margin: 40px auto;
-            padding: 30px;
-            background-color: #fff;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        h1 {
-            text-align: center;
-            color: #333;
-            margin-bottom: 20px;
-        }
-        .status-box {
-            margin-top: 20px;
-            padding: 15px;
-            background-color: #e9ecef;
-            border: 1px solid #ced4da;
-            border-radius: 4px;
-            word-wrap: break-word;
-        }
-        .error-box {
-            margin-top: 20px;
-            padding: 15px;
-            background-color: #f8d7da;
-            border: 1px solid #f5c6cb;
-            color: #721c24;
-            border-radius: 4px;
-        }
-        .success {
-            color: #155724;
-            font-weight: bold;
-        }
-        .error {
-            color: #dc3545;
-            font-weight: bold;
-        }
-        .log-container {
-            margin-top: 20px;
-            padding: 15px;
-            background-color: #f8f9fa;
-            border: 1px solid #dee2e6;
-            border-radius: 4px;
-            max-height: 200px;
-            overflow-y: auto;
-            font-family: monospace;
-            font-size: 12px;
-        }
-        button {
-            padding: 8px 16px;
-            background-color: #4285f4;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            margin: 5px;
-        }
-        button:hover {
-            background-color: #3367d6;
-        }
-        .auth-form {
-            margin: 20px 0;
-            padding: 15px;
-            background-color: #f8f9fa;
-            border-radius: 5px;
-        }
-        input {
-            display: block;
-            width: 100%;
-            padding: 8px;
-            margin: 8px 0;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Supabase Auth Test</h1>
-        <p>Test authentication with your Supabase instance at <strong>https://supabase.atthesametime.eu</strong></p>
-        
-        <div class="auth-form">
-            <h3>Email Authentication</h3>
-            <input type="email" id="email" placeholder="Email">
-            <input type="password" id="password" placeholder="Password">
-            <button id="signup">Sign Up</button>
-            <button id="signin">Sign In</button>
-            <button id="signout">Sign Out</button>
-            <button id="magic-link">Send Magic Link</button>
-        </div>
-        
-        <div>
-            <button id="test-api">Test API Connection</button>
-            <button id="test-auth">Test Auth Service</button>
-        </div>
-        
-        <div class="status-box" id="status">Initializing Supabase...</div>
-        
-        <div id="error-box" class="error-box" style="display: none;">
-            <span id="error-message"></span>
-        </div>
-        
-        <div class="log-container" id="log-container">
-            <!-- Console logs will appear here -->
-        </div>
-    </div>
 
-
-
-
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.38.4/dist/umd/supabase.js"></script>
-    <script>
-        // Configuration
-        const SUPABASE_URL = 'https://supabase.atthesametime.eu';
-        const SUPABASE_ANON_KEY = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJzdXBhYmFzZSIsImlhdCI6MTc0MzU5NzAwMCwiZXhwIjo0ODk5MjcwNjAwLCJyb2xlIjoiYW5vbiJ9.wgkj49OLaZ8lacLdpQqbs1lWYSKx2LnIeJ2YgZ3fbgs';
-    // --- MODIFICATION START ---
-    // Explicitly access the GLOBAL supabase object via window
-    console.log('Checking window.supabase before getting createClient:', window.supabase);
-    const { createClient } = window.supabase;
-    console.log('Got createClient function:', createClient);
-
-    // Now call the function and assign the result to your *local* supabase variable
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    console.log('Initialized local supabase client:', supabase);
-    // --- MODIFICATION END ---
-
-
-   
-
-        // DOM elements
-        const statusDiv = document.getElementById('status');
-        const errorBox = document.getElementById('error-box');
-        const errorMessage = document.getElementById('error-message');
-        const logContainer = document.getElementById('log-container');
-        const emailInput = document.getElementById('email');
-        const passwordInput = document.getElementById('password');
-        
-        // Utility functions
-        function log(message, type = 'info') {
-            console[type](message);
-            const logEntry = document.createElement('div');
-            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${type.toUpperCase()}: ${message}`;
-            logEntry.style.color = type === 'error' ? '#dc3545' : type === 'warn' ? '#ffc107' : '#212529';
-            logContainer.appendChild(logEntry);
-            logContainer.scrollTop = logContainer.scrollHeight;
-        }
-        
-        function showError(message) {
-            errorMessage.textContent = message;
-            errorBox.style.display = 'block';
-            log(message, 'error');
-        }
-        
-        function clearError() {
-            errorBox.style.display = 'none';
-        }
-        
-        // Auth state listener
-        supabase.auth.onAuthStateChange((event, session) => {
-            log(`Auth state changed: ${event}`);
-            
-            if (event === 'SIGNED_IN') {
-                statusDiv.innerHTML = `<span class="success">Signed in as ${session.user.email}</span>`;
-            } else if (event === 'SIGNED_OUT') {
-                statusDiv.innerHTML = 'Signed out';
-            }
-        });
-        
-        // Auth functions
-        async function signUp() {
-            const email = emailInput.value;
-            const password = passwordInput.value;
-            
-            if (!email || !password) {
-                showError('Please enter both email and password');
-                return;
-            }
-            
-            clearError();
-            log(`Attempting sign up: ${email}`);
-            
-            try {
-                const { user, error } = await supabase.auth.signUp({
-                    email,
-                    password
-                });
-                
-                if (error) throw error;
-                
-                log('Sign up successful! Check your email for confirmation.');
-                statusDiv.innerHTML = `<span class="success">Sign up successful! Check ${email} for confirmation</span>`;
-            } catch (error) {
-                showError(`Sign up failed: ${error.message}`);
-                log(`Sign up error: ${error.message}`, 'error');
-            }
-        }
-        
-        async function signIn() {
-            const email = emailInput.value;
-            const password = passwordInput.value;
-            
-            if (!email || !password) {
-                showError('Please enter both email and password');
-                return;
-            }
-            
-            clearError();
-            log(`Attempting sign in: ${email}`);
-            
-            try {
-                const { user, error } = await supabase.auth.signInWithPassword({
-                    email,
-                    password
-                });
-                
-                if (error) throw error;
-                
-                log(`Signed in as ${user.email}`);
-                statusDiv.innerHTML = `<span class="success">Signed in as ${user.email}</span>`;
-            } catch (error) {
-                showError(`Sign in failed: ${error.message}`);
-                log(`Sign in error: ${error.message}`, 'error');
-            }
-        }
-        
-        async function signOut() {
-            try {
-                const { error } = await supabase.auth.signOut();
-                if (error) throw error;
-                
-                log('Signed out successfully');
-                statusDiv.innerHTML = 'Signed out';
-            } catch (error) {
-                showError(`Sign out failed: ${error.message}`);
-                log(`Sign out error: ${error.message}`, 'error');
-            }
-        }
-        
-        async function sendMagicLink() {
-            const email = emailInput.value;
-            
-            if (!email) {
-                showError('Please enter your email');
-                return;
-            }
-            
-            clearError();
-            log(`Sending magic link to: ${email}`);
-            
-            try {
-                const { error } = await supabase.auth.signInWithOtp({
-                    email,
-                    options: {
-                        emailRedirectTo: 'https://atthesametime.eu/auth/callback'
-                    }
-                });
-                
-                if (error) throw error;
-                
-                log('Magic link sent! Check your email.');
-                statusDiv.innerHTML = `<span class="success">Magic link sent to ${email}</span>`;
-            } catch (error) {
-                showError(`Failed to send magic link: ${error.message}`);
-                log(`Magic link error: ${error.message}`, 'error');
-            }
-        }
-        
-        // Event listeners
-        document.getElementById('signup').addEventListener('click', signUp);
-        document.getElementById('signin').addEventListener('click', signIn);
-        document.getElementById('signout').addEventListener('click', signOut);
-        document.getElementById('magic-link').addEventListener('click', sendMagicLink);
-        
-        document.getElementById('test-api').addEventListener('click', async () => {
-            log('Testing API connection...');
-            try {
-                const { data, error } = await supabase.from('_dummy_query_').select('*', { count: 'exact' });
-                
-                if (error) {
-                    log(`API connection successful but query failed (expected): ${error.message}`);
-                    statusDiv.innerHTML = `<span class="success">API connection successful</span> (expected error: ${error.message})`;
-                } else {
-                    log('API connection and query successful');
-                    statusDiv.innerHTML = `<span class="success">API connection and query successful</span>`;
-                }
-            } catch (error) {
-                showError(`API test failed: ${error.message}`);
-                log(`API test error: ${error.message}`, 'error');
-            }
-        });
-        
-        document.getElementById('test-auth').addEventListener('click', async () => {
-            log('Testing Auth service...');
-            try {
-                const { data: { session }, error } = await supabase.auth.getSession();
-                
-                if (error) throw error;
-                
-                if (session) {
-                    log(`Auth service working. Current session for: ${session.user.email}`);
-                    statusDiv.innerHTML = `<span class="success">Auth service working. User: ${session.user.email}</span>`;
-                } else {
-                    log('Auth service working. No active session.');
-                    statusDiv.innerHTML = '<span class="success">Auth service working. No active session.</span>';
-                }
-            } catch (error) {
-                showError(`Auth test failed: ${error.message}`);
-                log(`Auth test error: ${error.message}`, 'error');
-            }
-        });
-        
-        // Initial check
-        (async () => {
-            log('Initializing...');
-            try {
-                const { data: { session } } = await supabase.auth.getSession();
-                
-                if (session) {
-                    log(`Initial session found for ${session.user.email}`);
-                    statusDiv.innerHTML = `<span class="success">Already signed in as ${session.user.email}</span>`;
-                } else {
-                    log('No active session found');
-                    statusDiv.textContent = 'Ready - not signed in';
-                }
-            } catch (error) {
-                showError(`Initialization error: ${error.message}`);
-                log(`Initialization error: ${error.message}`, 'error');
-            }
-        })();
     </script>
 </body>
 </html>
