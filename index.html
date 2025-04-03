@@ -1,4 +1,583 @@
 <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supabase Auth Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            line-height: 1.6;
+            padding: 20px;
+            background-color: #f4f4f4;
+            color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start; /* Align top */
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 600px;
+            width: 100%;
+            margin: 20px;
+            padding: 30px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1, h3 {
+            text-align: center;
+            color: #333;
+            margin-top: 0;
+            margin-bottom: 20px;
+        }
+        .status-box {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #e9ecef;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            word-wrap: break-word;
+            text-align: center;
+        }
+        .error-box {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            border-radius: 4px;
+            word-wrap: break-word;
+        }
+        .success {
+            color: #155724;
+            font-weight: bold;
+        }
+        .info {
+             color: #004085;
+        }
+        .log-container {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+        button {
+            display: inline-block;
+            padding: 10px 18px;
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 8px 5px 8px 0;
+            font-size: 14px;
+            transition: background-color 0.2s ease;
+        }
+        button:hover {
+            background-color: #3367d6;
+        }
+         button#signout {
+             background-color: #dc3545;
+         }
+         button#signout:hover {
+             background-color: #c82333;
+         }
+        .auth-form, #recovery-form {
+            margin: 20px 0;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border: 1px solid #eee;
+            border-radius: 5px;
+        }
+        input[type="email"], input[type="password"] {
+            box-sizing: border-box; /* Include padding in width */
+            display: block;
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .form-section {
+             margin-bottom: 20px;
+        }
+        .button-group {
+             display: flex;
+             flex-wrap: wrap;
+             gap: 10px; /* Adds space between buttons */
+        }
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Supabase Auth Flow</h1>
+        <p>Handles Sign Up, Sign In, Sign Out, Magic Link, and Password Recovery completion for <strong>https://supabase.atthesametime.eu</strong></p>
+
+        <!-- Status Display Area -->
+        <div class="status-box" id="status">Initializing...</div>
+
+        <!-- Error Display Area -->
+        <div id="error-box" class="error-box" style="display: none;">
+            <strong>Error:</strong> <span id="error-message"></span>
+        </div>
+
+        <!-- Standard Authentication Form -->
+        <div id="auth-form" class="auth-form" style="display: none;"> <!-- Initially hidden until state determined -->
+            <h3>Authenticate</h3>
+            <div class="form-section">
+                <label for="email">Email</label>
+                <input type="email" id="email" placeholder="Enter your email">
+            </div>
+             <div class="form-section">
+                 <label for="password">Password</label>
+                 <input type="password" id="password" placeholder="Enter your password (min 6 chars)">
+            </div>
+            <div class="button-group">
+                <button id="signup">Sign Up</button>
+                <button id="signin">Sign In</button>
+                <button id="magic-link">Send Magic Link</button>
+                <button id="signout" style="display: none;">Sign Out</button> <!-- Hidden initially -->
+                 <!-- Add password recovery request button if desired -->
+                 <!-- <button id="forgot-password">Forgot Password?</button> -->
+            </div>
+        </div>
+
+        <!-- Password Recovery Form (Hidden by default) -->
+        <div id="recovery-form" class="auth-form" style="display: none;">
+            <h3>Set New Password</h3>
+            <p>You are recovering your password. Please enter and confirm your new password below.</p>
+             <div class="form-section">
+                <label for="new-password">New Password</label>
+                <input type="password" id="new-password" placeholder="Enter new password (min 6 chars)">
+            </div>
+             <div class="form-section">
+                 <label for="confirm-password">Confirm New Password</label>
+                 <input type="password" id="confirm-password" placeholder="Confirm new password">
+            </div>
+            <button id="update-password">Update Password</button>
+        </div>
+
+        <!-- Log Area -->
+        <h3>Activity Log</h3>
+        <div class="log-container" id="log-container">
+            <!-- Console logs will appear here -->
+        </div>
+    </div>
+
+    <!-- Supabase Client Library -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script> <!-- Use version 2 -->
+
+    <!-- Main Application Logic -->
+    <script>
+        // --- Configuration ---
+        const SUPABASE_URL = 'https://supabase.atthesametime.eu';
+        // IMPORTANT: Replace with your ACTUAL Supabase Anonymous Key
+        // This key is safe to expose in browser code. DO NOT expose your Service Role Key here.
+        const SUPABASE_ANON_KEY = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJzdXBhYmFzZSIsImlhdCI6MTc0MzU5NzAwMCwiZXhwIjo0ODk5MjcwNjAwLCJyb2xlIjoiYW5vbiJ9.wgkj49OLaZ8lacLdpQqbs1lWYSKx2LnIeJ2YgZ3fbgs';
+
+
+
+        // --- Initialize Supabase Client ---
+        // The Supabase library attaches `createClient` to the global `supabase` object.
+        if (!supabase || !supabase.createClient) {
+             console.error('Supabase client library not loaded correctly.');
+             alert('Error: Supabase library failed to load. Check the console.');
+        }
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        console.log('Supabase client initialized');
+
+        // --- DOM Elements ---
+        const statusDiv = document.getElementById('status');
+        const errorBox = document.getElementById('error-box');
+        const errorMessage = document.getElementById('error-message');
+        const logContainer = document.getElementById('log-container');
+
+        const authFormDiv = document.getElementById('auth-form');
+        const emailInput = document.getElementById('email');
+        const passwordInput = document.getElementById('password');
+        const signUpButton = document.getElementById('signup');
+        const signInButton = document.getElementById('signin');
+        const magicLinkButton = document.getElementById('magic-link');
+        const signOutButton = document.getElementById('signout');
+
+        const recoveryFormDiv = document.getElementById('recovery-form');
+        const newPasswordInput = document.getElementById('new-password');
+        const confirmPasswordInput = document.getElementById('confirm-password');
+        const updatePasswordButton = document.getElementById('update-password');
+
+        // --- Utility Functions ---
+        function log(message, type = 'info') {
+            console[type === 'error' ? 'error' : 'log'](message); // Use console.error for errors
+            const logEntry = document.createElement('div');
+            const timestamp = new Date().toLocaleTimeString();
+            logEntry.innerHTML = `<code>[${timestamp}] ${type.toUpperCase()}: ${message.replace('<','<').replace('>','>')}</code>`; // Basic escaping
+            logEntry.style.color = type === 'error' ? '#721c24' : type === 'warn' ? '#856404' : '#333';
+            logEntry.style.borderBottom = '1px solid #eee';
+            logEntry.style.padding = '2px 0';
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight; // Auto-scroll
+        }
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorBox.style.display = 'block';
+            log(message, 'error');
+        }
+
+        function clearError() {
+            errorBox.style.display = 'none';
+            errorMessage.textContent = '';
+        }
+
+        function updateUI(state, session = null) {
+            clearError();
+            log(`Updating UI for state: ${state}`);
+
+            // Default: Hide everything initially
+            authFormDiv.style.display = 'none';
+            recoveryFormDiv.style.display = 'none';
+            signOutButton.style.display = 'none'; // Hide Sign Out by default
+
+            switch (state) {
+                case 'SIGNED_IN':
+                    statusDiv.innerHTML = `<span class="success">Signed in as ${session.user.email}</span>`;
+                    authFormDiv.style.display = 'block'; // Show main form
+                    signOutButton.style.display = 'inline-block'; // Show Sign Out
+                    // Disable irrelevant buttons when signed in
+                    signInButton.disabled = true;
+                    signUpButton.disabled = true;
+                    magicLinkButton.disabled = true;
+                    emailInput.disabled = true;
+                    passwordInput.disabled = true;
+                    emailInput.value = session.user.email; // Pre-fill email
+                    passwordInput.value = ''; // Clear password field
+                    break;
+
+                case 'SIGNED_OUT':
+                    statusDiv.innerHTML = '<span class="info">You are signed out.</span>';
+                    authFormDiv.style.display = 'block'; // Show main form
+                    // Enable relevant buttons when signed out
+                    signInButton.disabled = false;
+                    signUpButton.disabled = false;
+                    magicLinkButton.disabled = false;
+                    emailInput.disabled = false;
+                    passwordInput.disabled = false;
+                    // Don't clear email if user just signed out, maybe they want to sign in again
+                    passwordInput.value = ''; // Clear password field
+                    break;
+
+                case 'PASSWORD_RECOVERY':
+                    statusDiv.innerHTML = '<span class="info">Enter your new password below.</span>';
+                    recoveryFormDiv.style.display = 'block'; // Show only recovery form
+                    break;
+
+                case 'AWAITING_CONFIRMATION':
+                    statusDiv.innerHTML = `<span class="success">Check your email (${emailInput.value}) for the confirmation or magic link!</span>`;
+                     authFormDiv.style.display = 'block'; // Keep auth form visible but maybe disabled
+                     signInButton.disabled = true;
+                     signUpButton.disabled = true;
+                     magicLinkButton.disabled = true;
+                    break;
+
+                 default:
+                    statusDiv.textContent = 'Initializing or unknown state...';
+                    // Keep forms hidden until a clear state is known
+            }
+        }
+
+
+        // --- Supabase Auth Event Listener ---
+        supabaseClient.auth.onAuthStateChange((event, session) => {
+            log(`Auth Event: ${event}`);
+            if (session) {
+                log(`Session User: ${session.user.email}, ID: ${session.user.id}`);
+            } else {
+                 log('No active session.');
+            }
+
+            // Handle the special case where the user lands here from a recovery link
+            if (event === 'PASSWORD_RECOVERY') {
+                updateUI('PASSWORD_RECOVERY');
+            } else if (session) {
+                // User is signed in (could be from initial load, sign in, sign up confirmation, magic link)
+                updateUI('SIGNED_IN', session);
+            } else {
+                // User is signed out (could be from initial load, sign out)
+                 updateUI('SIGNED_OUT');
+                 // If the event was USER_UPDATED but there's no session (e.g., after password update),
+                 // ensure UI is in signed-out state. This might need adjustment based on desired flow.
+                 if(event === 'USER_UPDATED') {
+                     log('User updated (likely password reset), ensuring signed out state for UI.');
+                     statusDiv.innerHTML = '<span class="success">Password updated successfully! Please sign in.</span>';
+                 }
+            }
+        });
+
+        // --- Auth Functions ---
+        async function handleSignUp() {
+            const email = emailInput.value.trim();
+            const password = passwordInput.value; // Don't trim password
+
+            if (!email || !password) {
+                showError('Please enter both email and password.');
+                return;
+            }
+            if (password.length < 6) {
+                 showError('Password must be at least 6 characters long.');
+                 return;
+            }
+
+            clearError();
+            log(`Attempting sign up: ${email}`);
+            statusDiv.textContent = 'Signing up...';
+
+            try {
+                // Important: Supabase handles email confirmation flow automatically
+                // based on your project settings (Dashboard > Authentication > Settings).
+                // If "Confirm email" is enabled, the user won't be logged in immediately.
+                const { data, error } = await supabaseClient.auth.signUp({
+                    email,
+                    password,
+                    options: {
+                         // You can add emailRedirectTo here if you want the confirmation
+                         // link to go somewhere specific AFTER verification, but the
+                         // initial verification happens via the link Supabase sends.
+                         // emailRedirectTo: window.location.origin // Example: Redirect back here
+                    }
+                });
+
+                if (error) throw error;
+
+                log('Sign up request successful.');
+                if (data.user && data.user.identities && data.user.identities.length === 0) {
+                     // This often indicates email confirmation is required
+                     log('Sign up successful! Check your email for the confirmation link.');
+                     updateUI('AWAITING_CONFIRMATION');
+                } else if (data.session) {
+                     // Email confirmation might be disabled, user is logged in
+                     log('Sign up successful and signed in!');
+                     // onAuthStateChange will handle the UI update to SIGNED_IN
+                } else {
+                    // Unexpected state, maybe user exists but confirmation needed?
+                    log('Sign up request sent. Please check your email if confirmation is required.');
+                    updateUI('AWAITING_CONFIRMATION');
+                }
+
+            } catch (error) {
+                showError(`Sign up failed: ${error.message}`);
+                statusDiv.textContent = 'Sign up failed.';
+            }
+        }
+
+        async function handleSignIn() {
+            const email = emailInput.value.trim();
+            const password = passwordInput.value;
+
+            if (!email || !password) {
+                showError('Please enter both email and password.');
+                return;
+            }
+
+            clearError();
+            log(`Attempting sign in: ${email}`);
+            statusDiv.textContent = 'Signing in...';
+
+            try {
+                const { data, error } = await supabaseClient.auth.signInWithPassword({
+                    email,
+                    password,
+                });
+
+                if (error) throw error;
+
+                log(`Sign in successful for ${data.user.email}`);
+                // onAuthStateChange will handle the UI update
+                statusDiv.textContent = 'Sign in successful!'; // Temporary status
+
+            } catch (error) {
+                 if (error.message.includes("Email not confirmed")) {
+                     showError("Sign in failed: Please confirm your email address first. Check your inbox.");
+                     log("Sign in error: Email not confirmed.", "warn");
+                     updateUI('AWAITING_CONFIRMATION'); // Guide user
+                 } else {
+                    showError(`Sign in failed: ${error.message}`);
+                 }
+                 statusDiv.textContent = 'Sign in failed.';
+            }
+        }
+
+        async function handleSignOut() {
+            clearError();
+            log('Attempting sign out...');
+            statusDiv.textContent = 'Signing out...';
+
+            try {
+                const { error } = await supabaseClient.auth.signOut();
+                if (error) throw error;
+
+                log('Sign out successful.');
+                // onAuthStateChange will handle the UI update
+                emailInput.value = ''; // Clear email on sign out
+                passwordInput.value = ''; // Clear password
+
+            } catch (error) {
+                showError(`Sign out failed: ${error.message}`);
+                 statusDiv.textContent = 'Sign out failed.';
+            }
+        }
+
+        async function handleSendMagicLink() {
+            const email = emailInput.value.trim();
+
+            if (!email) {
+                showError('Please enter your email address.');
+                return;
+            }
+
+            clearError();
+            log(`Sending magic link to: ${email}`);
+            statusDiv.textContent = 'Sending magic link...';
+
+            try {
+                const { error } = await supabaseClient.auth.signInWithOtp({
+                    email,
+                    options: {
+                        // Redirect URL *after* the user clicks the link in the email
+                        // Make sure this matches your site's URL allowed in Supabase Auth settings
+                        emailRedirectTo: window.location.href, // Redirect back to this page
+                    },
+                });
+
+                if (error) throw error;
+
+                log('Magic link sent successfully!');
+                updateUI('AWAITING_CONFIRMATION');
+
+
+            } catch (error) {
+                showError(`Failed to send magic link: ${error.message}`);
+                statusDiv.textContent = 'Failed to send magic link.';
+            }
+        }
+
+        async function handleUpdatePassword() {
+            const newPassword = newPasswordInput.value;
+            const confirmPassword = confirmPasswordInput.value;
+
+            if (!newPassword || !confirmPassword) {
+                showError('Please enter and confirm your new password.');
+                return;
+            }
+            if (newPassword !== confirmPassword) {
+                showError('Passwords do not match.');
+                return;
+            }
+             if (newPassword.length < 6) { // Basic check, should align with Supabase policy
+                showError('Password must be at least 6 characters long.');
+                return;
+            }
+
+            clearError();
+            log('Attempting to update password...');
+            statusDiv.textContent = 'Updating password...';
+
+            try {
+                // The necessary authentication context is automatically handled by
+                // supabase-js when it detects the PASSWORD_RECOVERY event state.
+                const { data, error } = await supabaseClient.auth.updateUser({
+                    password: newPassword
+                });
+
+                if (error) throw error;
+
+                log('Password updated successfully!');
+                statusDiv.innerHTML = `<span class="success">Password updated successfully! You can now sign in.</span>`;
+
+                // Clear recovery form and potentially force sign out / show login form
+                newPasswordInput.value = '';
+                confirmPasswordInput.value = '';
+                // UI state should be updated by onAuthStateChange detecting USER_UPDATED
+                // and transitioning to SIGNED_OUT state (as the recovery session is invalidated)
+                // Force a check if needed, or rely on onAuthStateChange:
+                // updateUI('SIGNED_OUT'); // Manually put UI in sign out state
+
+                 // You might want to explicitly sign the user out if the updateUser
+                 // call doesn't automatically invalidate the recovery session token
+                 // await supabaseClient.auth.signOut();
+
+
+            } catch (error) {
+                showError(`Password update failed: ${error.message}`);
+                statusDiv.textContent = 'Password update failed.';
+            }
+        }
+
+        // --- Add Event Listeners ---
+        signUpButton.addEventListener('click', handleSignUp);
+        signInButton.addEventListener('click', handleSignIn);
+        signOutButton.addEventListener('click', handleSignOut);
+        magicLinkButton.addEventListener('click', handleSendMagicLink);
+        updatePasswordButton.addEventListener('click', handleUpdatePassword);
+
+        // --- Initial Log ---
+        log('Page loaded. Initializing authentication check...');
+        // Note: onAuthStateChange handles the initial state check automatically upon client initialization.
+
+    </script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
@@ -126,8 +705,7 @@
     <script>
         // Configuration
         const SUPABASE_URL = 'https://supabase.atthesametime.eu';
-        const SUPABASE_ANON_KEY = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJzdXBhYmFzZSIsImlhdCI6MTc0MzQ0MTEyMCwiZXhwIjo0ODk5MTE0NzIwLCJyb2xlIjoiYW5vbiJ9.tDUWbpLozT-ABGlKDzA7fkQVSNFlLMNgFOxzwU8mzU0';
-
+        const SUPABASE_ANON_KEY = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJzdXBhYmFzZSIsImlhdCI6MTc0MzU5NzAwMCwiZXhwIjo0ODk5MjcwNjAwLCJyb2xlIjoiYW5vbiJ9.wgkj49OLaZ8lacLdpQqbs1lWYSKx2LnIeJ2YgZ3fbgs';
     // --- MODIFICATION START ---
     // Explicitly access the GLOBAL supabase object via window
     console.log('Checking window.supabase before getting createClient:', window.supabase);
